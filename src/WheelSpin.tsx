@@ -17,19 +17,27 @@ const data = [
 const SpinningWheel: React.FC = () => {
     const [mustSpin, setMustSpin] = useState(false);
     const [prizeNumber, setPrizeNumber] = useState(0);
+    const [spinSpeed, setSpinSpeed] = useState(0.5); // Ajusta la velocidad
     const navigate = useNavigate();
+
     const handleSpinClick = () => {
       if (!mustSpin) {
         const newPrizeNumber = Math.floor(Math.random() * data.length);
         console.log(newPrizeNumber);
         setPrizeNumber(newPrizeNumber);
         setMustSpin(true);
+        setSpinSpeed(0.3); // Ajusta la velocidad al iniciar
       }
     }
-  
+
     const handleSpinResult = () => {
-      navigate('/scratch');
-  }
+      setSpinSpeed(0.1); // Ralentiza justo antes de detenerse
+      setTimeout(() => {
+        setMustSpin(false);
+        navigate('/scratch');
+      }, 200); // Detiene después de 200ms
+    }
+
     return (
       <div className="wheel-container">
         <Wheel
@@ -40,11 +48,8 @@ const SpinningWheel: React.FC = () => {
           outerBorderColor='white'
           radiusLineColor='white'
           innerBorderWidth={20}
-          onStopSpinning={() => {
-            setMustSpin(false);
-            handleSpinResult();
-            
-          }}
+          spinDuration={spinSpeed} // Usando la velocidad controlada
+          onStopSpinning={handleSpinResult}
         />
         <button className="spin-button" onClick={handleSpinClick}>GIRAR</button>
       </div>

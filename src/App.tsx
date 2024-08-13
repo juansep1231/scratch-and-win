@@ -8,6 +8,7 @@ import Layout from './Layout';
 
 
 function App() {
+  localStorage.clear
   return (
     <Router>
       <Routes>

@@ -1,27 +1,30 @@
-import React, { useRef, useEffect, useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Confetti from 'react-confetti';
 
 interface Prize {
+  id: string;
   imageSrc: string;
   quantity: number;
   name: string;
 }
 
-const ScratchCard: React.FC = () => {
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const [scratching, setScratching] = useState(false);
-  const [revealed, setRevealed] = useState(false);
-  const [scratchPercentage, setScratchPercentage] = useState(0);
-  const [showPopup, setShowPopup] = useState(false);
+const PrizePopup: React.FC = () => {
+  const [showPopup, setShowPopup] = useState(true);
   const [selectedPrize, setSelectedPrize] = useState<Prize | null>(null);
+  const [recentPrizes, setRecentPrizes] = useState<Prize[]>([]);
 
-  const initialPrizes = JSON.parse(localStorage.getItem('prizes') || '[]');
-  
-  const [prizes, setPrizes] = useState<Prize[]>(initialPrizes.length > 0 ? initialPrizes : [
-    { imageSrc: '../src/assets/mochila.png', quantity: 1, name: 'Premio 1' },
-    { imageSrc: '../src/assets/botella-de-agua.png', quantity: 1, name: 'Premio 2' },
-  ]);
+  const defaultPrizes: Prize[] = [
+    { id: 'T', imageSrc: '../src/assets/tango.jpg', quantity: 8, name: 'un dulce' },
+    { id: 'M', imageSrc: '../src/assets/mochila.png', quantity: 4, name: 'una mochila' },
+    { id: 'Te', imageSrc: '../src/assets/botella-de-agua.png', quantity: 4, name: 'un termo' },
+    { id: 'A', imageSrc: '../src/assets/alfajor.png', quantity: 15, name: 'un alfajor' },
+  ];
+
+  const [prizes, setPrizes] = useState<Prize[]>(() => {
+    const storedPrizes = localStorage.getItem('prizes');
+    return storedPrizes ? JSON.parse(storedPrizes) : defaultPrizes;
+  });
 
   const [windowSize, setWindowSize] = useState({
     width: window.innerWidth,
@@ -31,21 +34,6 @@ const ScratchCard: React.FC = () => {
   const navigate = useNavigate();
 
   useEffect(() => {
-    if (canvasRef.current) {
-      const canvas = canvasRef.current;
-      const ctx = canvas.getContext('2d');
-      const logoImage = new Image();
-      logoImage.src = '../src/assets/logo.png';
-      
-      logoImage.onload = () => {
-        if (ctx) {
-          ctx.fillStyle = '#CCCCCC';
-          ctx.fillRect(0, 0, canvas.width, canvas.height);
-          ctx.drawImage(logoImage, (canvas.width - 100) / 2, (canvas.height - 100) / 2, 100, 100);
-        }
-      };
-    }
-
     const handleResize = () => {
       setWindowSize({
         width: window.innerWidth,
@@ -57,70 +45,65 @@ const ScratchCard: React.FC = () => {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  const handleMouseDown = () => {
-    setScratching(true);
-  };
-
-  const handleMouseUp = () => {
-    setScratching(false);
-  };
-
-  const handleMouseMove = (e: React.MouseEvent) => {
-    if (!scratching || !canvasRef.current || revealed) return;
-
-    const canvas = canvasRef.current;
-    const ctx = canvas.getContext('2d');
-    if (ctx) {
-      const rect = canvas.getBoundingClientRect();
-      const x = e.clientX - rect.left;
-      const y = e.clientY - rect.top;
-
-      ctx.globalCompositeOperation = 'destination-out';
-      ctx.beginPath();
-      ctx.arc(x, y, 15, 0, Math.PI * 2, false);
-      ctx.fill();
-
-      const scratchedData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-      let scratchedPixels = 0;
-      for (let i = 0; i < scratchedData.data.length; i += 4) {
-        if (scratchedData.data[i + 3] === 0) {
-          scratchedPixels++;
-        }
-      }
-      const totalPixels = scratchedData.data.length / 4;
-      const percentage = (scratchedPixels / totalPixels) * 100;
-      setScratchPercentage(percentage);
-
-      if (percentage > 50) {
-        selectPrize();
-      }
-    }
-  };
+  useEffect(() => {
+    selectPrize();
+  }, []);
 
   const selectPrize = () => {
-    const availablePrizes = prizes.filter(prize => prize.quantity > 0);
+    let availablePrizes = prizes.filter(prize => prize.quantity > 0);
 
-    if (availablePrizes.length > 0) {
-      const randomIndex = Math.floor(Math.random() * availablePrizes.length);
-      const selected = availablePrizes[randomIndex];
-      setSelectedPrize(selected);
-      setRevealed(true);
-      setShowPopup(true);
+    // Ajustar las probabilidades según la cantidad restante
+    let totalWeight = availablePrizes.reduce((acc, prize) => acc + prize.quantity, 0);
 
-      const updatedPrizes = prizes.map(prize => {
-        if (prize.name === selected.name) {
-          return { ...prize, quantity: prize.quantity > 0 ? prize.quantity - 1 : 0 };
+    // Crear una lista ponderada de premios
+    let weightedPrizes: Prize[] = [];
+    availablePrizes.forEach(prize => {
+      for (let i = 0; i < (prize.quantity / totalWeight) * 100; i++) {
+        weightedPrizes.push(prize);
+      }
+    });
+
+    // Evitar premios repetidos en secuencia
+    let selected: Prize | null = null;
+    let attempt = 0;
+    const maxAttempts = 10; // Máximo número de intentos para evitar premios repetidos
+
+    while (!selected && attempt < maxAttempts) {
+      const randomIndex = Math.floor(Math.random() * weightedPrizes.length);
+      const potentialPrize = weightedPrizes[randomIndex];
+
+      // No permitir que 'mochila' o 'termo' se repitan seguidos
+      if (recentPrizes.length > 0) {
+        const lastPrize = recentPrizes[recentPrizes.length - 1];
+        if ((lastPrize.name === 'una mochila' && potentialPrize.name === 'una mochila') ||
+            (lastPrize.name === 'un termo' && potentialPrize.name === 'un termo')) {
+          attempt++;
+          continue;
         }
-        return prize;
-      });
+      }
 
-      setPrizes(updatedPrizes);
-      localStorage.setItem('prizes', JSON.stringify(updatedPrizes));
-    } else {
-      setSelectedPrize(null);
-      setRevealed(true);
-      setShowPopup(true);
+      selected = potentialPrize;
+      attempt++;
     }
+
+    if (!selected) {
+      selected = weightedPrizes[Math.floor(Math.random() * weightedPrizes.length)];
+    }
+
+    setSelectedPrize(selected);
+
+    const updatedPrizes = prizes.map(prize => {
+      if (prize.name === selected.name) {
+        return { ...prize, quantity: prize.quantity > 0 ? prize.quantity - 1 : 0 };
+      }
+      return prize;
+    });
+
+    setPrizes(updatedPrizes);
+    localStorage.setItem('prizes', JSON.stringify(updatedPrizes));
+
+    // Actualizar el historial de premios recientes, manteniendo los últimos premios
+    setRecentPrizes(prev => [...prev, selected].slice(-3));
   };
 
   const handleClosePopup = () => {
@@ -128,7 +111,10 @@ const ScratchCard: React.FC = () => {
     setShowPopup(false);
 
     if (!remainingPrizes) {
+      localStorage.removeItem('prizes');
+      navigate('/');
       alert('No hay más premios disponibles');
+
     } else {
       navigate('/');
     }
@@ -136,99 +122,64 @@ const ScratchCard: React.FC = () => {
 
   return (
     <>
-      {revealed && selectedPrize && <Confetti width={windowSize.width} height={windowSize.height} />}
-
-      <div 
-        className="scratch-card-wrapper" 
-        style={{ 
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          justifyContent: 'center',
-          minHeight: '100vh',
-          textAlign: 'center'
-        }}
-      >
-        <div 
-          className="scratch-card-container" 
-          style={{ 
-            position: 'relative', 
-            width: '500px', 
-            height: '300px',
-          }}
-        >
-          {/* Mostrar la imagen del premio debajo del canvas */}
-          {selectedPrize && (
-            <img
-              src={selectedPrize.imageSrc}
-              alt={selectedPrize.name}
-              style={{ 
-                position: 'absolute', 
-                top: 0, 
-                left: 0, 
-                width: '500px', 
-                height: '300px', 
-                objectFit: 'cover', 
-                zIndex: 1, 
-                borderRadius: '8px' 
-              }}
-            />
+      {selectedPrize && <Confetti width={windowSize.width} height={windowSize.height} />}
+      
+      {showPopup && (
+        <div className="popup" style={{
+          position: 'fixed',
+          top: '50%',
+          left: '50%',
+          transform: 'translate(-50%, -50%)',
+          padding: '20px',
+          backgroundColor: '#fff',
+          borderRadius: '10px',
+          boxShadow: '0 0 15px rgba(0, 0, 0, 0.3)',
+          zIndex: 9999,
+          textAlign: 'center',
+        }}>
+          {selectedPrize ? (
+            <>
+              <h2>¡Felicidades!</h2>
+              <p>¡Has ganado {selectedPrize.name}!</p>
+              <img src={selectedPrize.imageSrc} alt="Prize" style={{ width: '150px', height: 'auto', margin: '10px 0' }} />
+            </>
+          ) : (
+            <h2>No hay más premios disponibles</h2>
           )}
-
-          <canvas
-            ref={canvasRef}
-            width={500}
-            height={300}
-            className="scratch-canvas"
-            style={{ position: 'absolute', top: 0, left: 0, zIndex: 2, borderRadius: '8px' }}
-            onMouseDown={handleMouseDown}
-            onMouseUp={handleMouseUp}
-            onMouseMove={handleMouseMove}
-            onMouseLeave={handleMouseUp}
-          />
-        </div>
-
-        <p className="scratch-instruction" style={{ marginTop: '20px', fontSize: '18px', color: '#555' }}>
-          Raspa para revelar tu premio!
-        </p>
-
-        {showPopup && (
-          <div className="popup" style={{
-            position: 'fixed',
-            top: '50%',
-            left: '50%',
-            transform: 'translate(-50%, -50%)',
-            padding: '20px',
-            backgroundColor: '#fff',
-            borderRadius: '10px',
-            boxShadow: '0 0 15px rgba(0, 0, 0, 0.3)',
-            zIndex: 9999,
-            textAlign: 'center',
+          <button onClick={handleClosePopup} style={{
+            padding: '10px 20px',
+            backgroundColor: '#009929',
+            color: '#fff',
+            border: 'none',
+            borderRadius: '5px',
+            cursor: 'pointer',
           }}>
-            {selectedPrize ? (
-              <>
-                <h2>¡Felicidades!</h2>
-                <p>¡Has ganado {selectedPrize.name}!</p>
-                <img src={selectedPrize.imageSrc} alt="Prize" style={{ width: '150px', height: 'auto', margin: '10px 0' }} />
-              </>
-            ) : (
-              <h2>No hay más premios disponibles</h2>
-            )}
-            <button onClick={handleClosePopup} style={{
-              padding: '10px 20px',
-              backgroundColor: '#009929',
-              color: '#fff',
-              border: 'none',
-              borderRadius: '5px',
-              cursor: 'pointer',
-            }}>
-              Cerrar
-            </button>
-          </div>
-        )}
+            Cerrar
+          </button>
+        </div>
+      )}
+      <div style={{
+        position: 'fixed',
+        bottom: '10px',
+        left: '50%',
+        transform: 'translateX(-50%)',
+        backgroundColor: '#fff',
+        padding: '10px',
+        borderRadius: '10px',
+        boxShadow: '0 0 10px rgba(0, 0, 0, 0.1)',
+        textAlign: 'center',
+      }}>
+        <h3 style={{ color: '#EEEEEE', fontSize: '12px' }}>Premios</h3>
+        <ul style={{ listStyleType: 'none', padding: 0 }}>
+          {prizes.map((prize, index) => (
+            <li key={index} style={{ margin: '5px 0', color: '#EEEEEE', fontSize: '10px' }}>
+              {prize.id}: {prize.quantity} restantes
+            </li>
+          ))}
+        </ul>
       </div>
     </>
   );
 };
 
-export default ScratchCard;
+export default PrizePopup;

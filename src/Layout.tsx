@@ -12,7 +12,9 @@ const Layout: React.FC = () => {
         <Outlet />
       </div>
     </div>
-  );
+    
+  );  
+  
 };
 
 export default Layout;
